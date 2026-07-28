@@ -7,7 +7,6 @@ import {
   RotateCcw,
   Shuffle,
   Info,
-  X,
   ChevronRight,
   Check,
   Minus,
@@ -16,6 +15,7 @@ import {
   EyeOff,
   ArrowLeft,
 } from "lucide-react";
+import { matchArtworks, defaultSet, getArtworkMeta, type ArtworkMeta } from "../lib/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -23,122 +23,9 @@ type Screen = "welcome" | "checkin" | "gallery" | "canvas" | "close";
 type PaintTool = "brush" | "eraser";
 
 type Artwork = {
-  id: string;
-  title: string;
-  artist: string;
-  year: string;
-  medium: string;
+  id: number;
   imageUrl: string;
-  valence: number;
-  arousal: number;
 };
-
-// ─── Artwork Pool ─────────────────────────────────────────────────────────────
-
-const ARTWORKS: Artwork[] = [
-  {
-    id: "1",
-    title: "A Quiet Afternoon in the Garden",
-    artist: "Mary Cassatt",
-    year: "1884",
-    medium: "Oil on canvas",
-    imageUrl:
-      "https://images.unsplash.com/photo-1689016467848-70526a054893?w=800&h=800&fit=crop&auto=format",
-    valence: 0.35,
-    arousal: -0.45,
-  },
-  {
-    id: "2",
-    title: "Evening Procession",
-    artist: "Gustave Caillebotte",
-    year: "1878",
-    medium: "Oil on canvas",
-    imageUrl:
-      "https://images.unsplash.com/photo-1734639008090-99d6b3b8bb20?w=800&h=800&fit=crop&auto=format",
-    valence: -0.1,
-    arousal: -0.5,
-  },
-  {
-    id: "3",
-    title: "The Gathering",
-    artist: "Édouard Manet",
-    year: "1870",
-    medium: "Oil on canvas",
-    imageUrl:
-      "https://images.unsplash.com/photo-1701966572091-55a4c0282de0?w=800&h=800&fit=crop&auto=format",
-    valence: 0.45,
-    arousal: 0.2,
-  },
-  {
-    id: "4",
-    title: "Summer Meadow",
-    artist: "John Constable",
-    year: "1821",
-    medium: "Oil on canvas",
-    imageUrl:
-      "https://images.unsplash.com/photo-1705599773422-c1066356f801?w=800&h=800&fit=crop&auto=format",
-    valence: 0.7,
-    arousal: -0.55,
-  },
-  {
-    id: "5",
-    title: "On the Hillside",
-    artist: "Winslow Homer",
-    year: "1878",
-    medium: "Watercolor on paper",
-    imageUrl:
-      "https://images.unsplash.com/photo-1733259295695-825e95256a50?w=800&h=800&fit=crop&auto=format",
-    valence: 0.5,
-    arousal: -0.05,
-  },
-  {
-    id: "6",
-    title: "The Open Field",
-    artist: "George Inness",
-    year: "1866",
-    medium: "Oil on canvas",
-    imageUrl:
-      "https://images.unsplash.com/photo-1688223954745-64c14efce45e?w=800&h=800&fit=crop&auto=format",
-    valence: 0.2,
-    arousal: -0.4,
-  },
-  {
-    id: "7",
-    title: "Before the Storm",
-    artist: "Albert Pinkham Ryder",
-    year: "1887",
-    medium: "Watercolor on paper",
-    imageUrl:
-      "https://images.unsplash.com/photo-1733259295621-b44bcf8411f8?w=800&h=800&fit=crop&auto=format",
-    valence: -0.35,
-    arousal: -0.2,
-  },
-  {
-    id: "8",
-    title: "Study in Red",
-    artist: "Anne Nygård",
-    year: "1960",
-    medium: "Oil on canvas",
-    imageUrl:
-      "https://images.unsplash.com/photo-1619878627081-85dd33d8667e?w=800&h=800&fit=crop&auto=format",
-    valence: -0.2,
-    arousal: 0.4,
-  },
-];
-
-function getMatchedArtworks(valence: number, arousal: number): Artwork[] {
-  return [...ARTWORKS]
-    .sort((a, b) => {
-      const da = Math.hypot(a.valence - valence, a.arousal - arousal);
-      const db = Math.hypot(b.valence - valence, b.arousal - arousal);
-      return da - db;
-    })
-    .slice(0, 4);
-}
-
-function getRandomArtworks(): Artwork[] {
-  return [...ARTWORKS].sort(() => Math.random() - 0.5).slice(0, 4);
-}
 
 // ─── Shared Mobile Nav Bar ────────────────────────────────────────────────────
 
@@ -177,6 +64,24 @@ function NavBar({
 // ─── Welcome Screen ───────────────────────────────────────────────────────────
 
 function WelcomeScreen({ onStart }: { onStart: () => void }) {
+  // Purely decorative -- no check-in has happened yet, so this is just a
+  // handful of default artworks, not anything matched to the user.
+  const [collage, setCollage] = useState<Artwork[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    defaultSet([], 4)
+      .then((artworks) => {
+        if (!cancelled) setCollage(artworks);
+      })
+      .catch(() => {
+        // Decorative only -- if it fails, the warm background gradient underneath is enough.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -186,9 +91,9 @@ function WelcomeScreen({ onStart }: { onStart: () => void }) {
       className="flex flex-col h-full bg-background overflow-hidden"
     >
       {/* Top artwork collage — decorative */}
-      <div className="relative flex-none h-[42%] overflow-hidden">
+      <div className="relative flex-none h-[42%] overflow-hidden bg-muted">
         <div className="absolute inset-0 grid grid-cols-2 gap-0.5">
-          {ARTWORKS.slice(0, 4).map((art, i) => (
+          {collage.map((art, i) => (
             <motion.div
               key={art.id}
               initial={{ opacity: 0, scale: 1.06 }}
@@ -255,6 +160,31 @@ function WelcomeScreen({ onStart }: { onStart: () => void }) {
 
 // ─── Check-In Screen ──────────────────────────────────────────────────────────
 
+// Piecewise-linear remap: field edges match the real p5/p95 of scored
+// paintings, and the field's exact center matches the true median (p50) --
+// which isn't the same as the midpoint of p5 and p95 when the distribution
+// is skewed. Without this, a plain -1..1 mapping wastes most of the field on
+// score ranges almost no painting occupies (see scripts/inspect_scores.py).
+function remapToScoreRange(t: number, p5: number, p50: number, p95: number): number {
+  if (t <= 0.5) {
+    return p5 + (t / 0.5) * (p50 - p5);
+  }
+  return p50 + ((t - 0.5) / 0.5) * (p95 - p50);
+}
+
+// valence_score across 2861 scored paintings (stable -- not affected by the
+// arousal recalibration in scripts/recalibrate_arousal.py).
+const VALENCE_P5 = 0.295;
+const VALENCE_P50 = 0.519;
+const VALENCE_P95 = 0.643;
+
+// arousal_score across 2861 scored paintings, after
+// scripts/recalibrate_arousal.py --apply 0.7 (blends in edge density to cut
+// correlation with valence_score from r=-0.558 to r=-0.347).
+const AROUSAL_P5 = -0.255;
+const AROUSAL_P50 = -0.137;
+const AROUSAL_P95 = 0.114;
+
 function CheckInScreen({
   onSelect,
   onSkip,
@@ -285,7 +215,9 @@ function CheckInScreen({
 
   const handleConfirm = () => {
     if (!pos) return;
-    onSelect(pos.x * 2 - 1, -(pos.y * 2 - 1));
+    const valence = remapToScoreRange(pos.x, VALENCE_P5, VALENCE_P50, VALENCE_P95);
+    const arousal = remapToScoreRange(1 - pos.y, AROUSAL_P5, AROUSAL_P50, AROUSAL_P95);
+    onSelect(valence, arousal);
   };
 
   return (
@@ -429,11 +361,17 @@ function CheckInScreen({
 
 function GalleryScreen({
   artworks,
+  isLoading,
+  error,
+  poolExhausted,
   onSelect,
   onShuffle,
   onBack,
 }: {
   artworks: Artwork[];
+  isLoading: boolean;
+  error: boolean;
+  poolExhausted: boolean;
   onSelect: (art: Artwork) => void;
   onShuffle: () => void;
   onBack: () => void;
@@ -458,49 +396,86 @@ function GalleryScreen({
           </p>
         </div>
 
-        {/* 2×2 artwork grid */}
-        <div className="grid grid-cols-2 gap-3">
-          {artworks.map((art, i) => (
-            <motion.button
-              key={`${art.id}-${i}`}
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.08 + 0.1, duration: 0.5 }}
-              onClick={() => onSelect(art)}
-              className="group relative aspect-square rounded-2xl overflow-hidden
-                         bg-muted border border-border/50 active:scale-[0.96]
-                         transition-all duration-300 focus:outline-none
-                         focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <img
-                src={art.imageUrl}
-                alt={`Artwork option ${i + 1}`}
-                className="absolute inset-0 w-full h-full object-cover
-                           transition-transform duration-500 group-active:scale-105"
-              />
-              {/* Tap overlay */}
-              <div
-                className="absolute inset-0 bg-gradient-to-t from-foreground/50 to-transparent
-                           opacity-0 group-active:opacity-100 transition-opacity duration-200"
-              />
-            </motion.button>
-          ))}
-        </div>
+        {isLoading && (
+          <p className="font-body text-sm text-muted-foreground text-center mt-16">
+            Finding a few pieces for you.
+          </p>
+        )}
 
-        {/* Shuffle button */}
-        <motion.button
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.5 }}
-          onClick={onShuffle}
-          className="mt-5 w-full flex items-center justify-center gap-2.5
-                     py-3.5 rounded-2xl border border-border
-                     font-body text-sm text-muted-foreground
-                     active:bg-secondary transition-colors"
-        >
-          <Shuffle className="w-3.5 h-3.5" aria-hidden="true" />
-          Show me different ones
-        </motion.button>
+        {!isLoading && error && (
+          <div className="flex flex-col items-center gap-4 mt-16">
+            <p className="font-body text-sm text-muted-foreground text-center">
+              That didn't come through. Let's try again.
+            </p>
+            <button
+              onClick={onShuffle}
+              className="py-3 px-6 rounded-2xl border border-border
+                         font-body text-sm text-muted-foreground
+                         active:bg-secondary transition-colors"
+            >
+              Try again
+            </button>
+          </div>
+        )}
+
+        {!isLoading && !error && (
+          <>
+            {/* 2×2 artwork grid */}
+            <div className="grid grid-cols-2 gap-3">
+              {artworks.map((art, i) => (
+                <motion.button
+                  key={`${art.id}-${i}`}
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.08 + 0.1, duration: 0.5 }}
+                  onClick={() => onSelect(art)}
+                  className="group relative aspect-square rounded-2xl overflow-hidden
+                             bg-muted border border-border/50 active:scale-[0.96]
+                             transition-all duration-300 focus:outline-none
+                             focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <img
+                    src={art.imageUrl}
+                    alt={`Artwork option ${i + 1}`}
+                    className="absolute inset-0 w-full h-full object-cover
+                               transition-transform duration-500 group-active:scale-105"
+                  />
+                  {/* Tap overlay */}
+                  <div
+                    className="absolute inset-0 bg-gradient-to-t from-foreground/50 to-transparent
+                               opacity-0 group-active:opacity-100 transition-opacity duration-200"
+                  />
+                </motion.button>
+              ))}
+            </div>
+
+            {/* Shuffle button, or a warm note once the pool's exhausted */}
+            {poolExhausted ? (
+              <motion.p
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.5 }}
+                className="mt-5 text-center font-body text-sm text-muted-foreground/70"
+              >
+                That's everything for now.
+              </motion.p>
+            ) : (
+              <motion.button
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.5 }}
+                onClick={onShuffle}
+                className="mt-5 w-full flex items-center justify-center gap-2.5
+                           py-3.5 rounded-2xl border border-border
+                           font-body text-sm text-muted-foreground
+                           active:bg-secondary transition-colors"
+              >
+                <Shuffle className="w-3.5 h-3.5" aria-hidden="true" />
+                Show me different ones
+              </motion.button>
+            )}
+          </>
+        )}
       </div>
     </motion.div>
   );
@@ -536,7 +511,6 @@ function CanvasScreen({
   const [artOpacity, setArtOpacity] = useState(0.55);
   const [isDrawing, setIsDrawing] = useState(false);
   const [undoStack, setUndoStack] = useState<ImageData[]>([]);
-  const [showInfo, setShowInfo] = useState(false);
   const [showOpacity, setShowOpacity] = useState(false);
   const lastPos = useRef<{ x: number; y: number } | null>(null);
 
@@ -666,7 +640,7 @@ function CanvasScreen({
     >
       {/* Artwork background — takes all remaining space */}
       <img
-        src={artwork.imageUrl.replace("w=800&h=800", "w=1200&h=1600")}
+        src={artwork.imageUrl}
         alt=""
         className="absolute inset-0 w-full h-full object-cover transition-opacity duration-400"
         style={{ opacity: artOpacity }}
@@ -697,15 +671,6 @@ function CanvasScreen({
         </div>
         <div className="pointer-events-auto flex items-center gap-2">
           <button
-            onClick={() => setShowInfo((v) => !v)}
-            aria-label="Artwork info"
-            className="w-10 h-10 rounded-full bg-background/70 backdrop-blur-md border border-border/20
-                       flex items-center justify-center text-muted-foreground
-                       active:bg-background/90 transition-colors"
-          >
-            <Info className="w-4 h-4" />
-          </button>
-          <button
             onClick={onDone}
             className="bg-background/70 backdrop-blur-md border border-border/20
                        rounded-full px-4 py-2 font-body text-sm text-foreground
@@ -715,39 +680,6 @@ function CanvasScreen({
           </button>
         </div>
       </div>
-
-      {/* Artwork info drawer */}
-      <AnimatePresence>
-        {showInfo && (
-          <motion.div
-            initial={{ opacity: 0, y: -8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.22 }}
-            className="relative z-10 mx-5 mt-1 bg-background/90 backdrop-blur-md
-                       rounded-2xl border border-border/30 p-4"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h3 className="font-display text-base text-foreground leading-snug mb-0.5">
-                  {artwork.title}
-                </h3>
-                <p className="font-body text-sm text-muted-foreground">{artwork.artist}</p>
-                <p className="font-mono text-[10px] text-muted-foreground/55 mt-0.5">
-                  {artwork.year} · {artwork.medium}
-                </p>
-              </div>
-              <button
-                onClick={() => setShowInfo(false)}
-                className="w-7 h-7 flex items-center justify-center rounded-full
-                           text-muted-foreground hover:text-foreground flex-shrink-0"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* ── Opacity tray (opens above bottom bar) ── */}
       <AnimatePresence>
@@ -922,7 +854,33 @@ function CanvasScreen({
 
 // ─── Close Screen ─────────────────────────────────────────────────────────────
 
-function CloseScreen({ onRestart }: { onRestart: () => void }) {
+function CloseScreen({
+  artworkId,
+  onRestart,
+}: {
+  artworkId: number;
+  onRestart: () => void;
+}) {
+  // Metadata guardrail: title/artist/date/genre are only ever fetched here,
+  // on demand, after the creative act is over -- never during check-in,
+  // gallery, or painting.
+  const [meta, setMeta] = useState<ArtworkMeta | null>(null);
+  const [metaLoading, setMetaLoading] = useState(false);
+  const [showMeta, setShowMeta] = useState(false);
+
+  const revealMeta = () => {
+    if (meta || metaLoading) {
+      setShowMeta((v) => !v);
+      return;
+    }
+    setMetaLoading(true);
+    setShowMeta(true);
+    getArtworkMeta(artworkId)
+      .then(setMeta)
+      .catch(() => setMeta(null))
+      .finally(() => setMetaLoading(false));
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -968,6 +926,40 @@ function CloseScreen({ onRestart }: { onRestart: () => void }) {
         transition={{ delay: 0.8, duration: 0.7 }}
         className="px-5 pb-10 flex flex-col items-center gap-4"
       >
+        <AnimatePresence>
+          {showMeta && (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 8 }}
+              transition={{ duration: 0.22 }}
+              className="w-full bg-secondary/40 rounded-2xl border border-border/30 p-4 text-center"
+            >
+              {metaLoading && (
+                <p className="font-body text-sm text-muted-foreground">Just a moment.</p>
+              )}
+              {!metaLoading && meta && (
+                <>
+                  <h3 className="font-display text-base text-foreground leading-snug mb-0.5">
+                    {meta.title ?? "Untitled"}
+                  </h3>
+                  {meta.artist && (
+                    <p className="font-body text-sm text-muted-foreground">{meta.artist}</p>
+                  )}
+                  <p className="font-mono text-[10px] text-muted-foreground/55 mt-0.5">
+                    {[meta.date, meta.genre].filter(Boolean).join(" · ")}
+                  </p>
+                </>
+              )}
+              {!metaLoading && !meta && (
+                <p className="font-body text-sm text-muted-foreground">
+                  Couldn't find those details right now.
+                </p>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <button
           onClick={onRestart}
           className="w-full py-4 rounded-2xl border border-border
@@ -976,6 +968,16 @@ function CloseScreen({ onRestart }: { onRestart: () => void }) {
         >
           Start again, whenever you're ready
         </button>
+
+        <button
+          onClick={revealMeta}
+          className="flex items-center gap-1.5 font-body text-xs text-muted-foreground/70
+                     active:text-muted-foreground transition-colors"
+        >
+          <Info className="w-3 h-3" aria-hidden="true" />
+          {showMeta ? "Hide the details" : "Curious what this was?"}
+        </button>
+
         <p className="font-mono text-[9px] tracking-[0.2em] uppercase text-muted-foreground/30">
           Quiet Canvas · Private by default
         </p>
@@ -988,17 +990,57 @@ function CloseScreen({ onRestart }: { onRestart: () => void }) {
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("welcome");
-  const [gallery, setGallery] = useState<Artwork[]>(getRandomArtworks());
+  const [gallery, setGallery] = useState<Artwork[]>([]);
+  const [galleryLoading, setGalleryLoading] = useState(false);
+  const [galleryError, setGalleryError] = useState(false);
+  const [poolExhausted, setPoolExhausted] = useState(false);
+  const [shownIds, setShownIds] = useState<number[]>([]);
+  // null means the current gallery came from the skip path (default-set),
+  // not a check-in -- reshuffle needs to know which endpoint to re-call.
+  const [checkIn, setCheckIn] = useState<{ valence: number; arousal: number } | null>(null);
   const [activeArtwork, setActiveArtwork] = useState<Artwork | null>(null);
 
-  const handleCheckIn = (valence: number, arousal: number) => {
-    setGallery(getMatchedArtworks(valence, arousal));
+  const loadGallery = (fetcher: () => Promise<Artwork[]>) => {
     setScreen("gallery");
+    setGalleryLoading(true);
+    setGalleryError(false);
+    setPoolExhausted(false);
+    fetcher()
+      .then((artworks) => {
+        setGallery(artworks);
+        setShownIds(artworks.map((a) => a.id));
+      })
+      .catch(() => setGalleryError(true))
+      .finally(() => setGalleryLoading(false));
+  };
+
+  const handleCheckIn = (valence: number, arousal: number) => {
+    setCheckIn({ valence, arousal });
+    loadGallery(() => matchArtworks(valence, arousal, []));
   };
 
   const handleSkip = () => {
-    setGallery(getRandomArtworks());
-    setScreen("gallery");
+    setCheckIn(null);
+    loadGallery(() => defaultSet([]));
+  };
+
+  const handleShuffle = () => {
+    setGalleryLoading(true);
+    setGalleryError(false);
+    const fetcher = checkIn
+      ? matchArtworks(checkIn.valence, checkIn.arousal, shownIds)
+      : defaultSet(shownIds);
+    fetcher
+      .then((artworks) => {
+        if (artworks.length === 0) {
+          setPoolExhausted(true);
+          return;
+        }
+        setGallery(artworks);
+        setShownIds((prev) => [...prev, ...artworks.map((a) => a.id)]);
+      })
+      .catch(() => setGalleryError(true))
+      .finally(() => setGalleryLoading(false));
   };
 
   const handleSelectArtwork = (art: Artwork) => {
@@ -1038,8 +1080,11 @@ export default function App() {
             <div key="gallery" className="absolute inset-0">
               <GalleryScreen
                 artworks={gallery}
+                isLoading={galleryLoading}
+                error={galleryError}
+                poolExhausted={poolExhausted}
                 onSelect={handleSelectArtwork}
-                onShuffle={() => setGallery(getRandomArtworks())}
+                onShuffle={handleShuffle}
                 onBack={() => setScreen("checkin")}
               />
             </div>
@@ -1052,9 +1097,12 @@ export default function App() {
               />
             </div>
           )}
-          {screen === "close" && (
+          {screen === "close" && activeArtwork && (
             <div key="close" className="absolute inset-0">
-              <CloseScreen onRestart={() => setScreen("welcome")} />
+              <CloseScreen
+                artworkId={activeArtwork.id}
+                onRestart={() => setScreen("welcome")}
+              />
             </div>
           )}
         </AnimatePresence>
