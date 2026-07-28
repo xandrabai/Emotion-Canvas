@@ -3,10 +3,26 @@ Compute dominant_colors, brightness, saturation, valence_score, and arousal_scor
 for each row in the `paintings` table, using its image_id to fetch the actual
 artwork image and analyze its pixels.
 
-Method: Valdez & Mehrabian (1994) linear color-emotion formula.
+Method: Valdez & Mehrabian (1994) linear color-emotion formula for valence,
+blended with edge density for arousal:
   valence_score = 0.69 * brightness + 0.22 * saturation
-  arousal_score = -0.31 * brightness + 0.60 * saturation
-(brightness/saturation normalized 0-1 before applying the formula)
+  base_arousal  = -0.31 * brightness + 0.60 * saturation
+  arousal_score = 0.3 * base_arousal_z + 0.7 * edge_density_z, rescaled onto
+                  base_arousal's original mean/std (z-scores computed against
+                  the population stats baked in below)
+
+Edge density was added because brightness/saturation alone drove valence and
+arousal to a Pearson r=-0.558 across the existing 2861 scored paintings (see
+scripts/inspect_scores.py) -- both scores shared the same brightness term
+with opposite signs, so the "2D" check-in field was closer to 1D. Edge
+density is tied to visual busyness/detail instead, to decorrelate the two
+axes. A raw (non-normalized) blend barely moved the correlation, because
+edge_density's natural variance is ~4x smaller than base_arousal's -- see
+scripts/recalibrate_arousal.py, which calibrated this against the full
+population and found weight=0.7 cuts r to -0.347. The constants below
+(POPULATION_BASE_AROUSAL_MEAN/STD, POPULATION_EDGE_DENSITY_MEAN/STD) are that
+same calibration, applied here so newly-scored paintings stay consistent
+with the existing 2860 that were bulk-recalibrated.
 
 This does NOT touch energy_tag/texture_tag -- those come from a separate
 vision-model tagging pass (PRD Section 10.1, step 5), not from this script.
@@ -27,7 +43,7 @@ import io
 import time
 import colorsys
 import requests
-from PIL import Image
+from PIL import Image, ImageFilter
 from supabase import create_client
 
 SUPABASE_URL = os.environ["SUPABASE_URL"]
@@ -41,20 +57,34 @@ PAGE_SIZE = 500
 REQUEST_DELAY_SECONDS = 0.3  # be polite to the IIIF image server
 NUM_DOMINANT_COLORS = 5
 
+# Population stats from scripts/recalibrate_arousal.py's calibration run
+# (2860 rows, weight=0.7). Keep in sync if that script is ever re-run with a
+# different weight or against a materially larger/different corpus.
+AROUSAL_BLEND_WEIGHT = 0.7
+POPULATION_BASE_AROUSAL_MEAN = -0.10954174609364058
+POPULATION_BASE_AROUSAL_STD = 0.11647475232409184
+POPULATION_EDGE_DENSITY_MEAN = 0.10309359672136141
+POPULATION_EDGE_DENSITY_STD = 0.049768073958215614
+POPULATION_BLENDED_Z_STD = 0.7954856531823288
 
-def get_rows_to_process():
-    """Pull rows that have an image_id but haven't been scored yet."""
+
+def get_rows_to_process(rescore_all=False):
+    """
+    Pull rows that have an image_id. By default only rows never scored yet;
+    pass rescore_all=True to re-score every row (used once, to apply the
+    edge-density change retroactively to already-scored paintings).
+    """
     all_rows = []
     start = 0
     while True:
-        result = (
+        query = (
             supabase.table("paintings")
             .select("id, image_id")
             .not_.is_("image_id", "null")
-            .is_("valence_score", "null")
-            .range(start, start + PAGE_SIZE - 1)
-            .execute()
         )
+        if not rescore_all:
+            query = query.is_("valence_score", "null")
+        result = query.range(start, start + PAGE_SIZE - 1).execute()
         rows = result.data
         if not rows:
             break
@@ -89,8 +119,8 @@ def fetch_image(image_id):
 
 def extract_color_features(image):
     """
-    Compute dominant colors, brightness, and saturation from a PIL Image.
-    brightness/saturation are normalized to 0-1.
+    Compute dominant colors, brightness, saturation, and edge density from a
+    PIL Image. brightness/saturation/edge_density are normalized to 0-1.
     """
     # Downsample for speed -- exact pixel count doesn't matter for aggregate stats
     small = image.resize((150, 150))
@@ -124,13 +154,30 @@ def extract_color_features(image):
     brightness = total_v / n
     saturation = total_s / n
 
-    return dominant_colors, brightness, saturation
+    # Edge density: mean intensity of a Sobel-style edge map, normalized 0-1.
+    # A busy/detailed painting scores higher regardless of how bright or
+    # saturated it is -- independent of the brightness/saturation inputs
+    # that valence_score is built from.
+    edges = small.convert("L").filter(ImageFilter.FIND_EDGES)
+    edge_density = sum(edges.getdata()) / (n * 255.0)
+
+    return dominant_colors, brightness, saturation, edge_density
 
 
-def compute_valence_arousal(brightness, saturation):
-    """Apply the Valdez & Mehrabian (1994) linear formula."""
+def compute_valence_arousal(brightness, saturation, edge_density):
+    """Valdez & Mehrabian (1994) linear formula for valence. Arousal blends
+    in edge_density (z-scored against population stats, then rescaled back
+    onto base_arousal's original scale) to decorrelate it from valence's
+    brightness/saturation inputs -- see module docstring and
+    scripts/recalibrate_arousal.py for how these constants were derived."""
     valence = 0.69 * brightness + 0.22 * saturation
-    arousal = -0.31 * brightness + 0.60 * saturation
+
+    base_arousal = -0.31 * brightness + 0.60 * saturation
+    base_z = (base_arousal - POPULATION_BASE_AROUSAL_MEAN) / POPULATION_BASE_AROUSAL_STD
+    edge_z = (edge_density - POPULATION_EDGE_DENSITY_MEAN) / POPULATION_EDGE_DENSITY_STD
+    blended_z = (1 - AROUSAL_BLEND_WEIGHT) * base_z + AROUSAL_BLEND_WEIGHT * edge_z
+    arousal = POPULATION_BASE_AROUSAL_MEAN + (blended_z / POPULATION_BLENDED_Z_STD) * POPULATION_BASE_AROUSAL_STD
+
     return round(valence, 3), round(arousal, 3)
 
 
@@ -144,8 +191,8 @@ def update_row(row_id, dominant_colors, brightness, saturation, valence, arousal
     }).eq("id", row_id).execute()
 
 
-def main():
-    rows = get_rows_to_process()
+def main(rescore_all=False):
+    rows = get_rows_to_process(rescore_all=rescore_all)
     print(f"Found {len(rows)} rows to score.")
 
     processed = 0
@@ -156,8 +203,8 @@ def main():
         image_id = row["image_id"]
         try:
             image = fetch_image(image_id)
-            dominant_colors, brightness, saturation = extract_color_features(image)
-            valence, arousal = compute_valence_arousal(brightness, saturation)
+            dominant_colors, brightness, saturation, edge_density = extract_color_features(image)
+            valence, arousal = compute_valence_arousal(brightness, saturation, edge_density)
             update_row(row_id, dominant_colors, brightness, saturation, valence, arousal)
             processed += 1
         except Exception as e:
@@ -175,4 +222,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    main(rescore_all="--rescore-all" in sys.argv)
