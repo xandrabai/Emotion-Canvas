@@ -18,7 +18,12 @@ from matching import get_initial_matches, reshuffle_matches, supabase
 
 router = APIRouter()
 
-IIIF_URL_TEMPLATE = "https://www.artic.edu/iiif/2/{image_id}/full/843,/0/default.jpg"
+# "!843,843" fits the image within an 843x843 box, preserving aspect ratio,
+# without upscaling -- the exact-width form ("843,") 403s with "Requests for
+# scales in excess of 100% are not allowed" for any painting whose original
+# scan is narrower than 843px, which is common enough in this collection to
+# break a meaningful fraction of paintings.
+IIIF_URL_TEMPLATE = "https://www.artic.edu/iiif/2/{image_id}/full/!843,843/0/default.jpg"
 DEFAULT_SET_POOL_SIZE = 200
 
 

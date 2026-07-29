@@ -162,8 +162,14 @@ If a value isn't verifiable from the repo, ask rather than inventing a plausible
 Artwork images come from the Art Institute of Chicago IIIF endpoint:
 
 ```
-https://www.artic.edu/iiif/2/{image_id}/full/843,/0/default.jpg
+https://www.artic.edu/iiif/2/{image_id}/full/!843,843/0/default.jpg
 ```
+
+Use the `!w,h` bounding-box size syntax, not a fixed width (`843,`). The fixed
+form 403s with "Requests for scales in excess of 100% are not allowed" for
+any painting whose original scan is narrower than 843px — common enough in
+this collection to break a meaningful fraction of images. `!843,843` fits
+within an 843x843 box, preserving aspect ratio, without ever upscaling.
 
 Only rows where `image_id IS NOT NULL` are servable. (A previous bug used a
 non-existent AIC field `is_has_image` — that field does not exist. Filter on
