@@ -16,6 +16,7 @@ import {
   ArrowLeft,
 } from "lucide-react";
 import { matchArtworks, defaultSet, getArtworkMeta, type ArtworkMeta } from "../lib/api";
+import { exportPaintingDataUrl, savePainting } from "../lib/storage";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -104,6 +105,7 @@ function WelcomeScreen({ onStart }: { onStart: () => void }) {
               <img
                 src={art.imageUrl}
                 alt=""
+                referrerPolicy="no-referrer"
                 className="absolute inset-0 w-full h-full object-cover"
               />
             </motion.div>
@@ -437,6 +439,7 @@ function GalleryScreen({
                   <img
                     src={art.imageUrl}
                     alt={`Artwork option ${i + 1}`}
+                    referrerPolicy="no-referrer"
                     className="absolute inset-0 w-full h-full object-cover
                                transition-transform duration-500 group-active:scale-105"
                   />
@@ -630,6 +633,19 @@ function CanvasScreen({
     ctx.clearRect(0, 0, canvas.width, canvas.height);
   };
 
+  const handleDone = async () => {
+    try {
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const dataUrl = await exportPaintingDataUrl(canvas, artwork.imageUrl, artOpacity);
+        savePainting(artwork.id, dataUrl);
+      }
+    } catch {
+      // Fail quietly -- the session ends the same way either way.
+    }
+    onDone();
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -642,6 +658,7 @@ function CanvasScreen({
       <img
         src={artwork.imageUrl}
         alt=""
+        referrerPolicy="no-referrer"
         className="absolute inset-0 w-full h-full object-cover transition-opacity duration-400"
         style={{ opacity: artOpacity }}
       />
@@ -671,7 +688,7 @@ function CanvasScreen({
         </div>
         <div className="pointer-events-auto flex items-center gap-2">
           <button
-            onClick={onDone}
+            onClick={handleDone}
             className="bg-background/70 backdrop-blur-md border border-border/20
                        rounded-full px-4 py-2 font-body text-sm text-foreground
                        active:bg-background/90 transition-all"
