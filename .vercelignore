@@ -1,0 +1,7 @@
+api/
+scripts/
+*.py
+requirements.txt
+.venv/
+docs/
+guidelines/
