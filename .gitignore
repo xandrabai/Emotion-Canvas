@@ -8,3 +8,4 @@ __pycache__/
 scripts/arousal_recalibration_cache.csv
 scripts/score_distribution.png
 .claude/settings.local.json
+.vercel
