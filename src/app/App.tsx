@@ -443,6 +443,17 @@ function GalleryScreen({
                     className="absolute inset-0 w-full h-full object-cover
                                transition-transform duration-500 group-active:scale-105"
                   />
+                  {/* TEMP debug: append ?debug=1 to the URL to see the actual
+                      image src on-screen (works in production too, unlike
+                      import.meta.env.DEV). Remove once mobile issue is found. */}
+                  {new URLSearchParams(window.location.search).get("debug") && (
+                    <p
+                      className="absolute bottom-0 left-0 right-0 bg-black/70 text-white z-10 p-1"
+                      style={{ fontSize: 8, wordBreak: "break-all" }}
+                    >
+                      {art.imageUrl}
+                    </p>
+                  )}
                   {/* Tap overlay */}
                   <div
                     className="absolute inset-0 bg-gradient-to-t from-foreground/50 to-transparent
