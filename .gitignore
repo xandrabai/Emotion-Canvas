@@ -10,3 +10,4 @@ scripts/score_distribution.png
 scripts/backfill_storage_failures.json
 .claude/settings.local.json
 .vercel
+pnpm-lock.yaml

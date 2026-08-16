@@ -5,6 +5,7 @@
 // an error to the user.
 
 export type SavedPainting = {
+  id: string;
   artworkId: number;
   dataUrl: string;
   savedAt: string;
@@ -24,11 +25,25 @@ export function getSavedPaintings(): SavedPainting[] {
 export function savePainting(artworkId: number, dataUrl: string): void {
   try {
     const existing = getSavedPaintings();
-    const updated = [...existing, { artworkId, dataUrl, savedAt: new Date().toISOString() }];
+    const record: SavedPainting = {
+      id: crypto.randomUUID(),
+      artworkId,
+      dataUrl,
+      savedAt: new Date().toISOString(),
+    };
+    // Prepend so History shows most recent first without needing to sort.
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([record, ...existing]));
+  } catch {
+    // Storage full, unavailable, or quota exceeded -- fail quietly, same as before.
+  }
+}
+
+export function deletePainting(id: string): void {
+  try {
+    const updated = getSavedPaintings().filter((p) => p.id !== id);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
   } catch {
-    // Storage full, unavailable (private browsing), or quota exceeded --
-    // fail quietly rather than blocking or erroring the close flow.
+    // fail quietly
   }
 }
 

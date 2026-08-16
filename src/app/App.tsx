@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, MouseEvent, TouchEvent } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import { format } from "date-fns";
 import {
   Paintbrush,
   Eraser,
@@ -14,13 +15,15 @@ import {
   Eye,
   EyeOff,
   ArrowLeft,
+  Clock,
 } from "lucide-react";
+import { getSavedPaintings, deletePainting, type SavedPainting } from "../lib/storage";
 import { matchArtworks, defaultSet, getArtworkMeta, type ArtworkMeta } from "../lib/api";
 import { exportPaintingDataUrl, savePainting } from "../lib/storage";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Screen = "welcome" | "checkin" | "gallery" | "canvas" | "close";
+type Screen = "welcome" | "checkin" | "gallery" | "canvas" | "close" | "history" | "viewer";
 type PaintTool = "brush" | "eraser";
 
 type Artwork = {
@@ -64,7 +67,15 @@ function NavBar({
 
 // ─── Welcome Screen ───────────────────────────────────────────────────────────
 
-function WelcomeScreen({ onStart }: { onStart: () => void }) {
+function WelcomeScreen({
+  onStart,
+  onHistory,
+  hasPastPaintings,
+}: {
+  onStart: () => void;
+  onHistory: () => void;
+  hasPastPaintings: boolean;
+}) {
   // Purely decorative -- no check-in has happened yet, so this is just a
   // handful of default artworks, not anything matched to the user.
   const [collage, setCollage] = useState<Artwork[]>([]);
@@ -122,6 +133,22 @@ function WelcomeScreen({ onStart }: { onStart: () => void }) {
             </span>
           </div>
         </div>
+
+        {/* History icon — only shown when there's something to look back at */}
+        {hasPastPaintings && (
+          <motion.button
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.6 }}
+            onClick={onHistory}
+            aria-label="Your past pieces"
+            className="absolute top-12 right-5 z-10 w-11 h-11 flex items-center justify-center
+                       bg-background/85 backdrop-blur-md rounded-full shadow-sm border border-border/20
+                       text-muted-foreground active:bg-background/95 transition-colors"
+          >
+            <Clock className="w-4 h-4" />
+          </motion.button>
+        )}
       </div>
 
       {/* Content */}
@@ -145,16 +172,28 @@ function WelcomeScreen({ onStart }: { onStart: () => void }) {
           </p>
         </div>
 
-        <button
-          onClick={onStart}
-          className="w-full flex items-center justify-center gap-3
-                     bg-primary text-primary-foreground
-                     py-4 rounded-2xl font-body text-base
-                     active:scale-[0.98] transition-all duration-300"
-        >
-          Whenever you're ready
-          <ChevronRight className="w-4 h-4" aria-hidden="true" />
-        </button>
+        <div className="flex flex-col gap-3">
+          <button
+            onClick={onStart}
+            className="w-full flex items-center justify-center gap-3
+                       bg-primary text-primary-foreground
+                       py-4 rounded-2xl font-body text-base
+                       active:scale-[0.98] transition-all duration-300"
+          >
+            Whenever you're ready
+            <ChevronRight className="w-4 h-4" aria-hidden="true" />
+          </button>
+
+          {hasPastPaintings && (
+            <button
+              onClick={onHistory}
+              className="w-full py-3 font-body text-sm text-muted-foreground
+                         active:text-foreground transition-colors"
+            >
+              Look back at past pieces
+            </button>
+          )}
+        </div>
       </motion.div>
     </motion.div>
   );
@@ -243,19 +282,19 @@ function CheckInScreen({
         </div>
 
         {/* Circumplex field */}
-        <div className="flex flex-col items-center gap-2 flex-1">
+        <div className="flex flex-col items-center justify-center gap-2 flex-1">
           {/* Top label */}
-          <span className="font-mono text-[9px] tracking-widest uppercase text-muted-foreground/70 whitespace-nowrap">
-            active / arousal
+          <span className="font-mono text-[13px] tracking-widest uppercase text-muted-foreground/70 whitespace-nowrap">
+            arousal
           </span>
 
           {/* Middle row: left label + square + right label */}
-          <div className="flex items-center gap-2 w-full flex-1">
+          <div className="flex items-center gap-2 w-full">
             <span
-              className="font-mono text-[9px] tracking-widest uppercase text-muted-foreground/70 whitespace-nowrap flex-shrink-0"
+              className="font-mono text-[13px] tracking-widest uppercase text-muted-foreground/70 whitespace-nowrap flex-shrink-0"
               style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}
             >
-              negative / unpleasant
+              unpleasant
             </span>
 
             <div
@@ -304,23 +343,23 @@ function CheckInScreen({
                 className="absolute pointer-events-none -translate-x-1/2 -translate-y-1/2"
                 style={{ left: `${pos.x * 100}%`, top: `${pos.y * 100}%` }}
               >
-                <div className="w-6 h-6 rounded-full bg-accent ring-[8px] ring-accent/20" />
+                <div className="w-5 h-5 rounded-full bg-accent ring-[7px] ring-accent/20" />
               </motion.div>
             )}
           </div>
 
             {/* Right label */}
             <span
-              className="font-mono text-[9px] tracking-widest uppercase text-muted-foreground/70 whitespace-nowrap flex-shrink-0"
+              className="font-mono text-[13px] tracking-widest uppercase text-muted-foreground/70 whitespace-nowrap flex-shrink-0"
               style={{ writingMode: "vertical-rl" }}
             >
-              positive / pleasant
+              pleasant
             </span>
           </div>
 
           {/* Bottom label */}
-          <span className="font-mono text-[9px] tracking-widest uppercase text-muted-foreground/70 whitespace-nowrap">
-            passive / calm
+          <span className="font-mono text-[13px] tracking-widest uppercase text-muted-foreground/70 whitespace-nowrap">
+            calm
           </span>
         </div>
 
@@ -885,9 +924,11 @@ function CanvasScreen({
 function CloseScreen({
   artworkId,
   onRestart,
+  onHistory,
 }: {
   artworkId: number;
   onRestart: () => void;
+  onHistory: () => void;
 }) {
   // Metadata guardrail: title/artist/date/genre are only ever fetched here,
   // on demand, after the creative act is over -- never during check-in,
@@ -998,6 +1039,15 @@ function CloseScreen({
         </button>
 
         <button
+          onClick={onHistory}
+          className="w-full py-3.5 rounded-2xl border border-border
+                     font-body text-sm text-muted-foreground
+                     active:bg-secondary transition-colors"
+        >
+          Look back at what you've made
+        </button>
+
+        <button
           onClick={revealMeta}
           className="flex items-center gap-1.5 font-body text-xs text-muted-foreground/70
                      active:text-muted-foreground transition-colors"
@@ -1014,6 +1064,191 @@ function CloseScreen({
   );
 }
 
+// ─── History Screen ───────────────────────────────────────────────────────────
+
+function HistoryScreen({
+  paintings,
+  onBack,
+  onView,
+}: {
+  paintings: SavedPainting[];
+  onBack: () => void;
+  onView: (p: SavedPainting) => void;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: 30 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: -30 }}
+      transition={{ duration: 0.5, ease: [0.25, 0.1, 0.25, 1] }}
+      className="flex flex-col h-full bg-background"
+    >
+      <NavBar onBack={onBack} />
+
+      <div className="flex-1 overflow-y-auto px-5 pb-10">
+        <div className="mb-6 mt-2">
+          <h2 className="font-display text-[1.9rem] leading-[1.15] text-foreground mb-1.5">
+            What you've made.
+          </h2>
+          <p className="font-body text-sm text-muted-foreground">
+            Kept here, quietly, just for you.
+          </p>
+        </div>
+
+        {paintings.length === 0 ? (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.2 }}
+            className="flex flex-col items-center justify-center pt-16 text-center px-4"
+          >
+            <div className="flex items-center gap-3 mb-8" aria-hidden="true">
+              <div className="h-px w-8 bg-accent/30" />
+              <div className="w-1.5 h-1.5 rounded-full bg-accent/40" />
+              <div className="h-px w-8 bg-accent/30" />
+            </div>
+            <p className="font-display text-xl text-foreground mb-3">
+              Nothing here yet.
+            </p>
+            <p className="font-body text-sm text-muted-foreground leading-relaxed max-w-[220px]">
+              Whenever you finish a piece, it'll find its way here.
+            </p>
+          </motion.div>
+        ) : (
+          <div className="grid grid-cols-2 gap-3">
+            {paintings.map((p, i) => (
+              <motion.button
+                key={p.id}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.06 + 0.1, duration: 0.45 }}
+                onClick={() => onView(p)}
+                className="group flex flex-col gap-1.5 text-left active:scale-[0.96] transition-all duration-200"
+              >
+                <div className="relative aspect-square rounded-2xl overflow-hidden bg-muted border border-border/50">
+                  <img
+                    src={p.dataUrl}
+                    alt={`Piece from ${format(new Date(p.savedAt), "MMM d")}`}
+                    className="absolute inset-0 w-full h-full object-cover
+                               transition-transform duration-500 group-active:scale-105"
+                  />
+                </div>
+                <span className="font-mono text-[10px] text-muted-foreground/60 tracking-wide pl-0.5">
+                  {format(new Date(p.savedAt), "MMM d, yyyy")}
+                </span>
+              </motion.button>
+            ))}
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+// ─── Viewer Screen ────────────────────────────────────────────────────────────
+
+function ViewerScreen({
+  painting,
+  onBack,
+  onDelete,
+}: {
+  painting: SavedPainting;
+  onBack: () => void;
+  onDelete: (id: string) => void;
+}) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const handleDelete = () => {
+    onDelete(painting.id);
+    onBack();
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.6 }}
+      className="flex flex-col h-full bg-foreground overflow-hidden"
+    >
+      <img
+        src={painting.dataUrl}
+        alt={`Piece from ${format(new Date(painting.savedAt), "MMMM d, yyyy")}`}
+        className="absolute inset-0 w-full h-full object-contain"
+      />
+
+      <div className="relative z-10 flex items-center justify-between px-5 pt-12 pb-3">
+        <button
+          onClick={onBack}
+          aria-label="Go back"
+          className="w-10 h-10 flex items-center justify-center rounded-full
+                     bg-background/70 backdrop-blur-md border border-border/20
+                     text-muted-foreground active:bg-background/90 transition-colors"
+        >
+          <ArrowLeft className="w-5 h-5" />
+        </button>
+        <div className="flex items-center gap-2 bg-background/70 backdrop-blur-md rounded-full px-3.5 py-2 border border-border/20">
+          <span className="font-mono text-[10px] tracking-widest text-muted-foreground">
+            {format(new Date(painting.savedAt), "MMMM d, yyyy")}
+          </span>
+        </div>
+        <div className="w-10" />
+      </div>
+
+      <div className="absolute bottom-0 left-0 right-0 z-10 pb-10 px-5">
+        <AnimatePresence mode="wait">
+          {!confirmDelete ? (
+            <motion.button
+              key="prompt"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              onClick={() => setConfirmDelete(true)}
+              className="w-full py-3 font-body text-sm text-muted-foreground/50
+                         active:text-muted-foreground transition-colors text-center"
+            >
+              Remove this piece
+            </motion.button>
+          ) : (
+            <motion.div
+              key="confirm"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="bg-background/90 backdrop-blur-md rounded-2xl border border-border/25 p-4"
+            >
+              <p className="font-body text-sm text-muted-foreground text-center mb-3">
+                This will be gone for good. No way to undo it.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setConfirmDelete(false)}
+                  className="flex-1 py-3 rounded-xl border border-border
+                             font-body text-sm text-muted-foreground
+                             active:bg-secondary transition-colors"
+                >
+                  Keep it
+                </button>
+                <button
+                  onClick={handleDelete}
+                  className="flex-1 py-3 rounded-xl bg-foreground text-background
+                             font-body text-sm active:opacity-80 transition-opacity"
+                >
+                  Remove
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </motion.div>
+  );
+}
+
+
+
 // ─── App Shell ────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -1023,10 +1258,13 @@ export default function App() {
   const [galleryError, setGalleryError] = useState(false);
   const [poolExhausted, setPoolExhausted] = useState(false);
   const [shownIds, setShownIds] = useState<number[]>([]);
-  // null means the current gallery came from the skip path (default-set),
-  // not a check-in -- reshuffle needs to know which endpoint to re-call.
   const [checkIn, setCheckIn] = useState<{ valence: number; arousal: number } | null>(null);
   const [activeArtwork, setActiveArtwork] = useState<Artwork | null>(null);
+
+  const [paintings, setPaintings] = useState<SavedPainting[]>(getSavedPaintings());
+  const [viewingPainting, setViewingPainting] = useState<SavedPainting | null>(null);
+
+  const refreshPaintings = () => setPaintings(getSavedPaintings());
 
   const loadGallery = (fetcher: () => Promise<Artwork[]>) => {
     setScreen("gallery");
@@ -1076,12 +1314,17 @@ export default function App() {
     setScreen("canvas");
   };
 
+  const handleDeletePainting = (id: string) => {
+    deletePainting(id);
+    refreshPaintings();
+  };
+
+  const handleViewPainting = (p: SavedPainting) => {
+    setViewingPainting(p);
+    setScreen("viewer");
+  };
+
   return (
-    /*
-     * Mobile-first shell:
-     *   - On phones: fills the full viewport
-     *   - On desktop: centered 390×844 phone preview on a warm linen ground
-     */
     <div className="min-h-screen w-full bg-secondary/60 flex items-center justify-center">
       <div
         className="relative w-full h-screen
@@ -1092,7 +1335,11 @@ export default function App() {
         <AnimatePresence mode="wait">
           {screen === "welcome" && (
             <div key="welcome" className="absolute inset-0">
-              <WelcomeScreen onStart={() => setScreen("checkin")} />
+              <WelcomeScreen
+                onStart={() => setScreen("checkin")}
+                onHistory={() => setScreen("history")}
+                hasPastPaintings={paintings.length > 0}
+              />
             </div>
           )}
           {screen === "checkin" && (
@@ -1121,7 +1368,10 @@ export default function App() {
             <div key="canvas" className="absolute inset-0">
               <CanvasScreen
                 artwork={activeArtwork}
-                onDone={() => setScreen("close")}
+                onDone={() => {
+                  refreshPaintings();
+                  setScreen("close");
+                }}
               />
             </div>
           )}
@@ -1130,6 +1380,25 @@ export default function App() {
               <CloseScreen
                 artworkId={activeArtwork.id}
                 onRestart={() => setScreen("welcome")}
+                onHistory={() => setScreen("history")}
+              />
+            </div>
+          )}
+          {screen === "history" && (
+            <div key="history" className="absolute inset-0">
+              <HistoryScreen
+                paintings={paintings}
+                onBack={() => setScreen("welcome")}
+                onView={handleViewPainting}
+              />
+            </div>
+          )}
+          {screen === "viewer" && viewingPainting && (
+            <div key="viewer" className="absolute inset-0">
+              <ViewerScreen
+                painting={viewingPainting}
+                onBack={() => setScreen("history")}
+                onDelete={handleDeletePainting}
               />
             </div>
           )}
