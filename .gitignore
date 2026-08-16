@@ -7,5 +7,6 @@ __pycache__/
 *.pyc
 scripts/arousal_recalibration_cache.csv
 scripts/score_distribution.png
+scripts/backfill_storage_failures.json
 .claude/settings.local.json
 .vercel

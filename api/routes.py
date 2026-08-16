@@ -5,8 +5,18 @@ only happens here.
 Hard guardrail (CLAUDE.md #3): title/artist/date/genre never travel in the
 match or default-set payloads. Metadata is served only on demand, after
 painting, via GET /artwork/{id}/meta.
+
+Image source: Supabase Storage (storage_image_url), never AIC's IIIF
+endpoint at request time. AIC is blocked by Cloudflare bot protection for
+direct <img> hotlinks (worse on mobile) -- see CLAUDE.md's IIIF section for
+the debugging history. AIC is touched exclusively by the offline scoring/
+backfill pipeline (compute_valence_arousal.py). A row with no
+storage_image_url is dropped here rather than falling back to an AIC URL,
+so a missing backfill fails loudly (fewer/no results) instead of silently
+reintroducing the bug this was built to fix.
 """
 
+import logging
 import random
 from typing import List
 
@@ -17,22 +27,24 @@ from api import config  # noqa: F401  (loads .env before matching.py is imported
 from matching import get_initial_matches, reshuffle_matches, supabase
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
-# "!843,843" fits the image within an 843x843 box, preserving aspect ratio,
-# without upscaling -- the exact-width form ("843,") 403s with "Requests for
-# scales in excess of 100% are not allowed" for any painting whose original
-# scan is narrower than 843px, which is common enough in this collection to
-# break a meaningful fraction of paintings.
-IIIF_URL_TEMPLATE = "https://www.artic.edu/iiif/2/{image_id}/full/!843,843/0/default.jpg"
 DEFAULT_SET_POOL_SIZE = 200
 
 
 def _to_client_shape(rows):
-    return [
-        {"id": row["id"], "image_url": IIIF_URL_TEMPLATE.format(image_id=row["image_id"])}
-        for row in rows
-        if row.get("image_id")
-    ]
+    artworks = []
+    for row in rows:
+        storage_url = row.get("storage_image_url")
+        if not storage_url:
+            logger.warning(
+                "Dropping artwork id=%s from results: storage_image_url is not set "
+                "(backfill incomplete for this row)",
+                row.get("id"),
+            )
+            continue
+        artworks.append({"id": row["id"], "image_url": storage_url})
+    return artworks
 
 
 class MatchRequest(BaseModel):
@@ -59,8 +71,8 @@ def match(body: MatchRequest):
 def default_set(body: DefaultSetRequest):
     result = (
         supabase.table("paintings")
-        .select("id, image_id")
-        .not_.is_("image_id", "null")
+        .select("id, storage_image_url")
+        .not_.is_("storage_image_url", "null")
         .not_.is_("valence_score", "null")
         .not_.is_("arousal_score", "null")
         .eq("is_public_domain", True)
